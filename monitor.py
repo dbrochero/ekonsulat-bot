@@ -122,7 +122,16 @@ def ejecutar():
             for intento in range(8):
                 print(f"[INFO] Intento de captcha {intento + 1}/8...")
                 captcha_elem = page.locator("img[alt='Weryfikacja obrazkowa']").first
-                captcha_elem.wait_for(state="visible", timeout=15000)
+                try:
+                    captcha_elem.wait_for(state="visible", timeout=15000)
+                except Exception as e_cap:
+                    print(f"[WARN] Captcha no visible en intento {intento + 1}/8. Recargando página...")
+                    try:
+                        page.reload(timeout=30000, wait_until="domcontentloaded")
+                        page.wait_for_timeout(2500)
+                    except Exception:
+                        pass
+                    continue
 
                 src_data = captcha_elem.get_attribute("src") or ""
                 if not src_data.startswith("data:image"):
@@ -275,9 +284,12 @@ def ejecutar():
                     )
                     enviar_telegram(msg_alerta, "confirmacion_final.png")
                     
-                    # Mantener el navegador abierto por 4 minutos para que lo termines a mano
-                    print("[PAUSA] Manteniendo navegador abierto 240 segundos para que intervengas...")
-                    page.wait_for_timeout(240000)
+                    # Mantener el navegador abierto para que lo termines a mano
+                    print("[PAUSA] Manteniendo navegador abierto hasta 240 segundos para que intervengas...")
+                    try:
+                        page.wait_for_timeout(240000)
+                    except Exception:
+                        pass
                 else:
                     print("\n=======================================================")
                     print("[EXITO TOTAL] ¡Formulario enviado automáticamente con éxito!")
@@ -287,14 +299,28 @@ def ejecutar():
 
         except Exception as e:
             print(f"[EXCEPCION] {e}")
-            page.screenshot(path="error_trace.png")
+            try:
+                if not page.is_closed():
+                    page.screenshot(path="error_trace.png")
+            except Exception:
+                pass
             alarma_local()
             msg_error = f"⚠️ *e-Konsulat Excepción:* {e}\nRevisá la pantalla de la Mac."
-            enviar_telegram(msg_error, "error_trace.png")
-            page.wait_for_timeout(180000)
+            enviar_telegram(msg_error, "error_trace.png" if os.path.exists("error_trace.png") else None)
+            try:
+                if not page.is_closed():
+                    page.wait_for_timeout(60000)
+            except Exception:
+                pass
         finally:
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            except Exception:
+                pass
+            try:
+                browser.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     ejecutar()
