@@ -15,6 +15,7 @@ URL = "https://secure.e-konsulat.gov.pl/placowki/164/sprawy-paszportowe/wizyty/f
 API_KEY_2CAPTCHA = os.getenv("TWOCAPTCHA_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+HEADLESS = os.getenv("HEADLESS", "true").strip().lower() in ("true", "1", "yes", "t")
 
 # Configurar sesión con reintentos
 session = requests.Session()
@@ -104,8 +105,8 @@ def escribir_campo(locator, valor, nombre=""):
 
 def ejecutar():
     with sync_playwright() as p:
-        # headless=False para que si salta la alarma la ventana ya esté visible frente a vos
-        browser = p.chromium.launch(headless=False)
+        print(f"[INFO] Iniciando navegador (modo silencioso: {HEADLESS})...")
+        browser = p.chromium.launch(headless=HEADLESS)
         context = browser.new_context(
             viewport={"width": 1280, "height": 1050},
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"

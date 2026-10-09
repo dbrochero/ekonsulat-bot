@@ -42,6 +42,7 @@ Script automatizado con Playwright para monitorear la disponibilidad de turnos e
    - `TWOCAPTCHA_API_KEY`: Tu clave de API de 2Captcha.
    - `TELEGRAM_BOT_TOKEN`: Token otorgado por @BotFather.
    - `TELEGRAM_CHAT_ID`: Tu Chat ID de Telegram.
+   - `HEADLESS`: `true` para ejecución silenciosa en segundo plano (por defecto), o `false` para ver el navegador.
    - Datos personales del solicitante (`CANDIDATO_NOMBRE`, `CANDIDATO_DOCUMENTO`, etc.).
 
 ---
