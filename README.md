@@ -56,7 +56,7 @@ python monitor.py
 ```
 
 ### Ejecución programada (Cron)
-Puedes utilizar el script [run_cron.sh](file:///Users/dbrochero/ekonsulat-bot/run_cron.sh) para ejecutarlo automáticamente cada X minutos:
+Puedes utilizar el script [run_cron.sh](run_cron.sh) para ejecutarlo automáticamente cada X minutos. Evita corridas solapadas (lock) y solo avisa por Telegram cuando hay novedades (cupo, éxito o error), no en cada corrida sin cambios:
 ```bash
 chmod +x run_cron.sh
 ./run_cron.sh
@@ -67,3 +67,6 @@ chmod +x run_cron.sh
 ## 🔒 Seguridad
 - El archivo `.env` está ignorado por Git para proteger claves y datos personales.
 - Las capturas de pantalla, archivos de registro (`*.log`) y dumps HTML temporales no se suben al repositorio.
+- Ningún dato personal está en el código: todo el formulario sale de `.env` y el bot no arranca si faltan variables.
+- La API key de 2Captcha y el token de Telegram se ocultan (`***`) en logs y mensajes de error.
+- `run_cron.sh` no ejecuta el `.env` como shell: solo lee las claves que necesita.
