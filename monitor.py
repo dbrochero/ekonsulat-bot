@@ -30,6 +30,7 @@ DATOS_FELIPE = {
     "telefono": os.getenv("CANDIDATO_TELEFONO", ""),
     "email": os.getenv("CANDIDATO_EMAIL", ""),
     "fecha_nacimiento": os.getenv("CANDIDATO_FECHA_NACIMIENTO", ""),
+    "apellido_madre": os.getenv("CANDIDATO_APELLIDO_MADRE", "Konaszczuk"),
     "descripcion": os.getenv("CANDIDATO_DESCRIPCION", "Wniosek o pierwszy paszport 10-letni (PESEL nienadany)")
 }
 
@@ -50,8 +51,8 @@ def enviar_telegram(mensaje: str, foto_path: str = None):
 def alarma_local():
     """Hace sonar una alarma en macOS para avisarte si estás cerca de la Mac."""
     try:
-        subprocess.Popen(["afplay", "/System/Library/Sounds/Glass.aiff"])
-        subprocess.Popen(["say", "Atención. Cupo de pasaporte disponible. Revisar pantalla."])
+        subprocess.Popen(["afplay", "/System/Library/Sounds/Glass.aiff"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(["say", "Atención. Cupo de pasaporte disponible. Revisar pantalla."], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
 
@@ -90,17 +91,18 @@ def resolver_captcha_2captcha(b64_img: str):
 
 def escribir_campo(locator, valor, nombre=""):
     try:
-        if locator.is_visible(timeout=3000):
-            locator.scroll_into_view_if_needed()
-            locator.click()
-            locator.fill("")
-            locator.type(valor, delay=35)
-            locator.dispatch_event("input")
-            locator.dispatch_event("change")
-            print(f"[OK] Campo '{nombre}' completado.")
+        if locator and locator.count() > 0:
+            campo = locator.first
+            campo.scroll_into_view_if_needed()
+            campo.click()
+            campo.fill("")
+            campo.type(str(valor), delay=35)
+            campo.dispatch_event("input")
+            campo.dispatch_event("change")
+            print(f"[OK] Campo '{nombre}' completado con éxito.")
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] Error en campo '{nombre}': {e}")
     return False
 
 def ejecutar():
@@ -218,48 +220,76 @@ def ejecutar():
 
                 # Intentar completar automáticamente
                 print("[INFO] Intentando completar formulario automáticamente...")
-                inputs = page.locator("input:not([type='hidden']):not([type='checkbox'])").all()
+                
+                # 1. Datos personales de contacto
+                escribir_campo(page.locator("input[aria-label*='Imię' i], #mat-input-1").first, DATOS_FELIPE["nombre"], "Nombre")
+                escribir_campo(page.locator("input[aria-label*='Nazwisko' i], #mat-input-2").first, DATOS_FELIPE["apellido"], "Apellido")
+                escribir_campo(page.locator("input[aria-label*='Numer paszportu' i], #mat-input-3").first, DATOS_FELIPE["documento"], "Documento")
+                escribir_campo(page.locator("input[aria-label*='Ulica' i], #mat-input-4").first, DATOS_FELIPE["direccion_completa"], "Dirección")
 
-                if len(inputs) >= 4:
-                    escribir_campo(inputs[0], DATOS_FELIPE["nombre"], "Nombre")
-                    escribir_campo(inputs[1], DATOS_FELIPE["apellido"], "Apellido")
-                    escribir_campo(inputs[2], DATOS_FELIPE["documento"], "Documento")
-                    escribir_campo(inputs[3], DATOS_FELIPE["direccion_completa"], "Dirección")
+                # Prefiks (+54)
+                try:
+                    pref_inp = page.locator("input[aria-label*='Prefiks' i], #mat-input-5").first
+                    if pref_inp.count() > 0:
+                        pref_inp.scroll_into_view_if_needed()
+                        pref_inp.click()
+                        pref_inp.fill("")
+                        pref_inp.type("+54", delay=50)
+                        page.wait_for_timeout(600)
+                        opc = page.locator(".cdk-overlay-container mat-option:has-text('+54')").first
+                        if opc.is_visible(timeout=1500):
+                            opc.click()
+                        else:
+                            pref_inp.press("Enter")
+                        print("[OK] Campo 'Prefiks' completado (+54).")
+                except Exception as e:
+                    print(f"[WARN] Error seleccionando Prefiks: {e}")
+
+                escribir_campo(page.locator("input[aria-label*='Telefon' i], #mat-input-6, input[autocomplete='tel']").first, DATOS_FELIPE["telefono"], "Teléfono")
+                escribir_campo(page.locator("input[aria-label*='Email' i], #mat-input-7, input[autocomplete='email']").first, DATOS_FELIPE["email"], "Email")
 
                 try:
-                    prefijo = page.locator("mat-form-field:has-text('Prefiks') mat-select").first
-                    if prefijo.is_visible(timeout=2000):
-                        prefijo.click()
-                        overlay.locator("mat-option").filter(has_text="+54").first.click()
-                except Exception:
-                    pass
-
-                escribir_campo(page.locator("mat-form-field:has-text('Telefon') input").first, DATOS_FELIPE["telefono"], "Teléfono")
-                escribir_campo(page.locator("mat-form-field:has-text('Email') input").first, DATOS_FELIPE["email"], "Email")
-
-                try:
-                    t_area = page.locator("textarea").first
-                    if t_area.is_visible(timeout=2000):
+                    t_area = page.locator("textarea[aria-label*='Opis sprawy' i], textarea, #mat-input-8").first
+                    if t_area.count() > 0:
                         t_area.fill(DATOS_FELIPE["descripcion"])
                         t_area.dispatch_event("input")
+                        print("[OK] Campo 'Opis sprawy' completado.")
                 except Exception:
                     pass
 
-                # Checkboxes
-                for selector in [
-                    "mat-checkbox:has-text('Czy sprawa dotyczy osoby rejestrującej')",
-                    "mat-checkbox:has-text('1-SZY PASZPORT')",
-                    "mat-checkbox:has-text('RODO'), mat-checkbox:has-text('Wyrażam zgodę')"
-                ]:
-                    try:
-                        chk = page.locator(selector).first
-                        if chk.is_visible(timeout=2000):
-                            chk.scroll_into_view_if_needed()
-                            chk.click()
-                    except Exception:
-                        pass
+                # 2. Checkbox persona registrante
+                chk_rejestr = page.locator("mat-checkbox:has-text('Czy sprawa dotyczy osoby rejestrującej')").first
+                if chk_rejestr.count() > 0 and not chk_rejestr.locator("input").is_checked():
+                    chk_rejestr.scroll_into_view_if_needed()
+                    chk_rejestr.click()
+                    print("[OK] Checkbox 'Czy sprawa dotyczy osoby rejestrującej' tildado.")
+                    page.wait_for_timeout(500)
 
-                page.wait_for_timeout(2000)
+                # 3. Checkbox trámite del menor (1-SZY PASZPORT)
+                chk_pasz = page.locator("mat-checkbox:has-text('1-SZY PASZPORT')").first
+                if chk_pasz.count() > 0 and not chk_pasz.locator("input").is_checked():
+                    chk_pasz.scroll_into_view_if_needed()
+                    chk_pasz.click()
+                    print("[OK] Checkbox '1-SZY PASZPORT' tildado.")
+                    page.wait_for_timeout(1500)
+
+                # 4. Datos específicos del menor (Osoba 1) que aparecen al tildar el trámite
+                print("[INFO] Completando datos específicos del menor (Osoba 1)...")
+                matka_inp = page.locator("input[aria-label*='Nazwisko rodowe matki' i], app-text-control:has-text('Nazwisko rodowe matki') input").first
+                escribir_campo(matka_inp, DATOS_FELIPE["apellido_madre"], "Nazwisko rodowe matki (Apellido madre)")
+
+                fecha_inp = page.locator("input[aria-label*='Data urodzenia' i], app-date-control input, input.mat-datepicker-input").first
+                escribir_campo(fecha_inp, DATOS_FELIPE["fecha_nacimiento"], "Data urodzenia (Fecha nacimiento)")
+
+                # 5. Checkbox RODO
+                chk_rodo = page.locator("mat-checkbox:has-text('Wyrażam zgodę'), mat-checkbox:has-text('RODO')").first
+                if chk_rodo.count() > 0 and not chk_rodo.locator("input").is_checked():
+                    chk_rodo.scroll_into_view_if_needed()
+                    chk_rodo.click()
+                    print("[OK] Checkbox RODO tildado.")
+                    page.wait_for_timeout(500)
+
+                page.wait_for_timeout(1500)
                 page.screenshot(path="formulario_felipe_completado.png", full_page=True)
 
                 # Intentar enviar
