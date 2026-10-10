@@ -13,9 +13,6 @@ with sync_playwright() as p:
     page.goto(URL, timeout=60000, wait_until="networkidle")
     page.wait_for_timeout(4000)
     
-    # Guardamos captura de lo que se ve
-    page.screenshot(path="debug_screenshot.png", full_page=True)
-    print("Screenshot guardado en debug_screenshot.png")
     
     # Guardamos el HTML para ver los nombres exactos de los campos
     with open("debug_page.html", "w", encoding="utf-8") as f:

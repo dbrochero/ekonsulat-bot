@@ -34,17 +34,12 @@ DATOS_FELIPE = {
     "descripcion": os.getenv("CANDIDATO_DESCRIPCION", "Wniosek o pierwszy paszport 10-letni (PESEL nienadany)")
 }
 
-def enviar_telegram(mensaje: str, foto_path: str = None):
+def enviar_telegram(mensaje: str):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     try:
         url_msg = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         session.post(url_msg, data={"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "Markdown"}, timeout=10)
-        
-        if foto_path and os.path.exists(foto_path):
-            url_photo = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-            with open(foto_path, "rb") as f:
-                session.post(url_photo, data={"chat_id": TELEGRAM_CHAT_ID, "caption": "Estado en pantalla"}, files={"photo": f}, timeout=15)
     except Exception as e:
         print(f"[WARN] Error enviando Telegram: {e}")
 
@@ -214,9 +209,6 @@ def ejecutar():
                     btn_tak2.click()
                 page.wait_for_timeout(3000)
 
-                # Guardamos el dump HTML completo para tener registro forense
-                with open("formulario_abierto_dump.html", "w", encoding="utf-8") as f:
-                    f.write(page.content())
 
                 # Intentar completar automáticamente
                 print("[INFO] Intentando completar formulario automáticamente...")
@@ -290,7 +282,6 @@ def ejecutar():
                     page.wait_for_timeout(500)
 
                 page.wait_for_timeout(1500)
-                page.screenshot(path="formulario_felipe_completado.png", full_page=True)
 
                 # Intentar enviar
                 print("[INFO] Presionando botón de envío...")
@@ -300,7 +291,6 @@ def ejecutar():
                 page.wait_for_timeout(5000)
 
                 html_final = page.content()
-                page.screenshot(path="confirmacion_final.png", full_page=True)
 
                 # VERIFICACIÓN DE ÉXITO O FALLBACK HUMANO
                 if "Wystąpiły błędy walidacji" in html_final or "Pole wymagane" in html_final:
@@ -313,7 +303,7 @@ def ejecutar():
                         "La ventana quedó abierta en tu Mac con el temporizador activo (~4 minutos).\n"
                         "👉 Revisá la pantalla, completá el campo en rojo y tocá 'Dalej'."
                     )
-                    enviar_telegram(msg_alerta, "confirmacion_final.png")
+                    enviar_telegram(msg_alerta)
                     
                     # Mantener el navegador abierto para que lo termines a mano
                     print("[PAUSA] Manteniendo navegador abierto hasta 240 segundos para que intervengas...")
@@ -325,19 +315,14 @@ def ejecutar():
                     print("\n=======================================================")
                     print("[EXITO TOTAL] ¡Formulario enviado automáticamente con éxito!")
                     print("=======================================================\n")
-                    msg_exito = "🎉 *¡TURNO REGISTRADO CON ÉXITO!* 🇵🇱\nRevisá el comprobante adjunto y tu casilla de email."
-                    enviar_telegram(msg_exito, "confirmacion_final.png")
+                    msg_exito = "🎉 *¡TURNO REGISTRADO CON ÉXITO!* 🇵🇱\nRevisá tu casilla de email para el comprobante oficial."
+                    enviar_telegram(msg_exito)
 
         except Exception as e:
             print(f"[EXCEPCION] {e}")
-            try:
-                if not page.is_closed():
-                    page.screenshot(path="error_trace.png")
-            except Exception:
-                pass
             alarma_local()
             msg_error = f"⚠️ *e-Konsulat Excepción:* {e}\nRevisá la pantalla de la Mac."
-            enviar_telegram(msg_error, "error_trace.png" if os.path.exists("error_trace.png") else None)
+            enviar_telegram(msg_error)
             try:
                 if not page.is_closed():
                     page.wait_for_timeout(60000)

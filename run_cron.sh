@@ -52,10 +52,3 @@ curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" 
     -d parse_mode="Markdown" \
     --data-urlencode text="$MENSAJE" > /dev/null 2>&1
 
-# Si hubo inscripción exitosa, enviar la imagen de confirmación
-if echo "$SALIDA_CORRIDA" | grep -q "confirmacion_final.png"; then
-    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
-        -F chat_id="${TELEGRAM_CHAT_ID}" \
-        -F photo="@/Users/$(whoami)/ekonsulat-bot/confirmacion_final.png" \
-        -F caption="Comprobante de inscripción de Felipe" > /dev/null 2>&1
-fi
