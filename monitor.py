@@ -22,7 +22,7 @@ session = requests.Session()
 retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
 session.mount('https://', HTTPAdapter(max_retries=retries))
 
-DATOS_FELIPE = {
+DATOS_SOLICITANTE = {
     "nombre": os.getenv("CANDIDATO_NOMBRE", ""),
     "apellido": os.getenv("CANDIDATO_APELLIDO", ""),
     "documento": os.getenv("CANDIDATO_DOCUMENTO", ""),
@@ -30,9 +30,26 @@ DATOS_FELIPE = {
     "telefono": os.getenv("CANDIDATO_TELEFONO", ""),
     "email": os.getenv("CANDIDATO_EMAIL", ""),
     "fecha_nacimiento": os.getenv("CANDIDATO_FECHA_NACIMIENTO", ""),
-    "apellido_madre": os.getenv("CANDIDATO_APELLIDO_MADRE", "Konaszczuk"),
+    "apellido_madre": os.getenv("CANDIDATO_APELLIDO_MADRE", ""),
     "descripcion": os.getenv("CANDIDATO_DESCRIPCION", "Wniosek o pierwszy paszport 10-letni (PESEL nienadany)")
 }
+
+def sin_secretos(texto) -> str:
+    """Oculta la API key de 2Captcha y el token de Telegram en cualquier texto."""
+    texto = str(texto)
+    for secreto in (API_KEY_2CAPTCHA, TELEGRAM_BOT_TOKEN):
+        if secreto:
+            texto = texto.replace(secreto, "***")
+    return texto
+
+CAMPOS_OBLIGATORIOS = ("nombre", "apellido", "documento", "direccion_completa", "telefono",
+                       "email", "fecha_nacimiento", "apellido_madre")
+
+def faltan_variables() -> list:
+    faltan = [k for k in CAMPOS_OBLIGATORIOS if not DATOS_SOLICITANTE[k]]
+    if not API_KEY_2CAPTCHA:
+        faltan.append("TWOCAPTCHA_API_KEY")
+    return faltan
 
 def enviar_telegram(mensaje: str):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -41,7 +58,7 @@ def enviar_telegram(mensaje: str):
         url_msg = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         session.post(url_msg, data={"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "Markdown"}, timeout=10)
     except Exception as e:
-        print(f"[WARN] Error enviando Telegram: {e}")
+        print(f"[WARN] Error enviando Telegram: {sin_secretos(e)}")
 
 def alarma_local():
     """Hace sonar una alarma en macOS para avisarte si estás cerca de la Mac."""
@@ -76,7 +93,7 @@ def resolver_captcha_2captcha(b64_img: str):
 
     for _ in range(25):
         time.sleep(2.5)
-        res_res = session.get(f"https://2captcha.com/res.php?key={API_KEY_2CAPTCHA}&action=get&id={req_id}&json=1", timeout=10).json()
+        res_res = session.get("https://2captcha.com/res.php", params={"key": API_KEY_2CAPTCHA, "action": "get", "id": req_id, "json": 1}, timeout=10).json()
         if res_res.get("status") == 1:
             return res_res.get("request", "").strip(), req_id
         if res_res.get("request") != "CAPCHA_NOT_READY":
@@ -101,6 +118,11 @@ def escribir_campo(locator, valor, nombre=""):
     return False
 
 def ejecutar():
+    faltan = faltan_variables()
+    if faltan:
+        print(f"[ERROR] Faltan variables de entorno en .env: {', '.join(faltan)}")
+        return
+
     with sync_playwright() as p:
         print(f"[INFO] Iniciando navegador (modo silencioso: {HEADLESS})...")
         browser = p.chromium.launch(headless=HEADLESS)
@@ -158,7 +180,7 @@ def ejecutar():
                 else:
                     print(f"[REINTENTO] Rechazado. Refrescando...")
                     try:
-                        session.get(f"https://2captcha.com/res.php?key={API_KEY_2CAPTCHA}&action=reportbad&id={req_id}", timeout=5)
+                        session.get("https://2captcha.com/res.php", params={"key": API_KEY_2CAPTCHA, "action": "reportbad", "id": req_id}, timeout=5)
                     except Exception:
                         pass
                     btn_ref = page.locator("button:has-text('Odśwież')").first
@@ -214,10 +236,10 @@ def ejecutar():
                 print("[INFO] Intentando completar formulario automáticamente...")
                 
                 # 1. Datos personales de contacto
-                escribir_campo(page.locator("input[aria-label*='Imię' i], #mat-input-1").first, DATOS_FELIPE["nombre"], "Nombre")
-                escribir_campo(page.locator("input[aria-label*='Nazwisko' i], #mat-input-2").first, DATOS_FELIPE["apellido"], "Apellido")
-                escribir_campo(page.locator("input[aria-label*='Numer paszportu' i], #mat-input-3").first, DATOS_FELIPE["documento"], "Documento")
-                escribir_campo(page.locator("input[aria-label*='Ulica' i], #mat-input-4").first, DATOS_FELIPE["direccion_completa"], "Dirección")
+                escribir_campo(page.locator("input[aria-label*='Imię' i], #mat-input-1").first, DATOS_SOLICITANTE["nombre"], "Nombre")
+                escribir_campo(page.locator("input[aria-label*='Nazwisko' i], #mat-input-2").first, DATOS_SOLICITANTE["apellido"], "Apellido")
+                escribir_campo(page.locator("input[aria-label*='Numer paszportu' i], #mat-input-3").first, DATOS_SOLICITANTE["documento"], "Documento")
+                escribir_campo(page.locator("input[aria-label*='Ulica' i], #mat-input-4").first, DATOS_SOLICITANTE["direccion_completa"], "Dirección")
 
                 # Prefiks (+54)
                 try:
@@ -237,13 +259,13 @@ def ejecutar():
                 except Exception as e:
                     print(f"[WARN] Error seleccionando Prefiks: {e}")
 
-                escribir_campo(page.locator("input[aria-label*='Telefon' i], #mat-input-6, input[autocomplete='tel']").first, DATOS_FELIPE["telefono"], "Teléfono")
-                escribir_campo(page.locator("input[aria-label*='Email' i], #mat-input-7, input[autocomplete='email']").first, DATOS_FELIPE["email"], "Email")
+                escribir_campo(page.locator("input[aria-label*='Telefon' i], #mat-input-6, input[autocomplete='tel']").first, DATOS_SOLICITANTE["telefono"], "Teléfono")
+                escribir_campo(page.locator("input[aria-label*='Email' i], #mat-input-7, input[autocomplete='email']").first, DATOS_SOLICITANTE["email"], "Email")
 
                 try:
                     t_area = page.locator("textarea[aria-label*='Opis sprawy' i], textarea, #mat-input-8").first
                     if t_area.count() > 0:
-                        t_area.fill(DATOS_FELIPE["descripcion"])
+                        t_area.fill(DATOS_SOLICITANTE["descripcion"])
                         t_area.dispatch_event("input")
                         print("[OK] Campo 'Opis sprawy' completado.")
                 except Exception:
@@ -268,10 +290,10 @@ def ejecutar():
                 # 4. Datos específicos del menor (Osoba 1) que aparecen al tildar el trámite
                 print("[INFO] Completando datos específicos del menor (Osoba 1)...")
                 matka_inp = page.locator("input[aria-label*='Nazwisko rodowe matki' i], app-text-control:has-text('Nazwisko rodowe matki') input").first
-                escribir_campo(matka_inp, DATOS_FELIPE["apellido_madre"], "Nazwisko rodowe matki (Apellido madre)")
+                escribir_campo(matka_inp, DATOS_SOLICITANTE["apellido_madre"], "Nazwisko rodowe matki (Apellido madre)")
 
                 fecha_inp = page.locator("input[aria-label*='Data urodzenia' i], app-date-control input, input.mat-datepicker-input").first
-                escribir_campo(fecha_inp, DATOS_FELIPE["fecha_nacimiento"], "Data urodzenia (Fecha nacimiento)")
+                escribir_campo(fecha_inp, DATOS_SOLICITANTE["fecha_nacimiento"], "Data urodzenia (Fecha nacimiento)")
 
                 # 5. Checkbox RODO
                 chk_rodo = page.locator("mat-checkbox:has-text('Wyrażam zgodę'), mat-checkbox:has-text('RODO')").first
@@ -319,9 +341,10 @@ def ejecutar():
                     enviar_telegram(msg_exito)
 
         except Exception as e:
-            print(f"[EXCEPCION] {e}")
+            err = sin_secretos(e)
+            print(f"[EXCEPCION] {err}")
             alarma_local()
-            msg_error = f"⚠️ *e-Konsulat Excepción:* {e}\nRevisá la pantalla de la Mac."
+            msg_error = f"⚠️ *e-Konsulat Excepción:* {err}\nRevisá la pantalla de la Mac."
             enviar_telegram(msg_error)
             try:
                 if not page.is_closed():
