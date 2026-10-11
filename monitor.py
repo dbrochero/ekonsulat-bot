@@ -74,13 +74,29 @@ DATOS_SOLICITANTE: Dict[str, str] = {
     "descripcion": os.getenv("CANDIDATO_DESCRIPCION", "Wniosek o pierwszy paszport 10-letni (PESEL nienadany)").strip(),
 }
 
+CAMPOS_OBLIGATORIOS = (
+    "nombre",
+    "apellido",
+    "documento",
+    "direccion_completa",
+    "telefono",
+    "email",
+    "fecha_nacimiento",
+    "apellido_madre",
+)
+
+
+def sin_secretos(texto) -> str:
+    """Oculta la API key de 2Captcha y el token de Telegram en cualquier texto."""
+    texto = str(texto)
+    for secreto in (API_KEY_2CAPTCHA, TELEGRAM_BOT_TOKEN):
+        if secreto:
+            texto = texto.replace(secreto, "***")
+    return texto
+
 
 def sanitize_for_logs(text: object) -> str:
-    value = str(text)
-    for secret in (API_KEY_2CAPTCHA, TELEGRAM_BOT_TOKEN):
-        if secret:
-            value = value.replace(secret, "***")
-    return value
+    return sin_secretos(text)
 
 
 def faltan_variables() -> List[str]:
@@ -88,7 +104,7 @@ def faltan_variables() -> List[str]:
     for key in REQUIRED_ENV_VARS:
         if not globals().get(key, ""):
             faltan.append(key)
-    for key in MANDATORY_APPLICANT_FIELDS:
+    for key in CAMPOS_OBLIGATORIOS:
         if not DATOS_SOLICITANTE.get(key, ""):
             faltan.append(f"CANDIDATO_{key.upper()}")
     return faltan
@@ -235,6 +251,7 @@ def ejecutar():
                     print("[EXITO] Captcha superado.")
                     superado = True
                     break
+
                 print("[REINTENTO] Rechazado. Refrescando...")
                 try:
                     session.get(
@@ -386,9 +403,10 @@ def ejecutar():
                     enviar_telegram(msg_exito)
 
         except Exception as exc:
-            print(f"[EXCEPCION] {sanitize_for_logs(exc)}")
+            err = sanitize_for_logs(exc)
+            print(f"[EXCEPCION] {err}")
             alarma_local()
-            msg_error = f"⚠️ *e-Konsulat Excepción:* {sanitize_for_logs(exc)}\nRevisá la pantalla de la Mac."
+            msg_error = f"⚠️ *e-Konsulat Excepción:* {err}\nRevisá la pantalla de la Mac."
             enviar_telegram(msg_error)
             try:
                 if not page.is_closed():
