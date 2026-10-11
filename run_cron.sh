@@ -21,7 +21,9 @@ fi
 echo $$ > "$LOCK_DIR/pid"
 
 LOG_ACTUAL=$(mktemp "${TMPDIR:-/tmp}/ekonsulat_run.XXXXXX")
-trap 'rm -rf "$LOCK_DIR" "$LOG_ACTUAL"' EXIT
+LOG_ARCHIVO="ejecucion.log"
+LOG_TMP=$(mktemp "${TMPDIR:-/tmp}/ekonsulat_log.XXXXXX")
+trap 'rm -rf "$LOCK_DIR" "$LOG_ACTUAL" "$LOG_TMP"' EXIT
 
 # --- Leer solo lo necesario de .env, sin ejecutarlo ---
 leer_env() {
@@ -49,7 +51,14 @@ python monitor.py > "$LOG_ACTUAL" 2>&1
     echo "==============================================="
     date
     cat "$LOG_ACTUAL"
-} | ocultar >> ejecucion.log
+    echo "==============================================="
+} | ocultar > "$LOG_TMP"
+
+if [ -f "$LOG_ARCHIVO" ]; then
+    cat "$LOG_ARCHIVO" >> "$LOG_TMP"
+fi
+
+mv "$LOG_TMP" "$LOG_ARCHIVO"
 
 SALIDA_CORRIDA=$(ocultar < "$LOG_ACTUAL")
 
