@@ -8,9 +8,12 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from playwright.sync_api import sync_playwright
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
-load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+for env_name, env_value in dotenv_values(os.path.join(BASE_DIR, ".env")).items():
+    if env_value is not None and not os.environ.get(env_name):
+        os.environ[env_name] = env_value
 
 URL = "https://secure.e-konsulat.gov.pl/placowki/164/sprawy-paszportowe/wizyty/formularz"
 API_KEY_2CAPTCHA = os.getenv("TWOCAPTCHA_API_KEY", "").strip()
@@ -101,8 +104,13 @@ def sanitize_for_logs(text: object) -> str:
 
 def faltan_variables() -> List[str]:
     faltan: List[str] = []
+    valores_entorno = {
+        "TWOCAPTCHA_API_KEY": API_KEY_2CAPTCHA,
+        "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
+        "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
+    }
     for key in REQUIRED_ENV_VARS:
-        if not globals().get(key, ""):
+        if not valores_entorno.get(key, ""):
             faltan.append(key)
     for key in CAMPOS_OBLIGATORIOS:
         if not DATOS_SOLICITANTE.get(key, ""):
@@ -397,10 +405,16 @@ def ejecutar():
                         pass
                 else:
                     print("\n=======================================================")
-                    print("[EXITO TOTAL] ¡Formulario enviado automáticamente con éxito!")
+                    print("[CONFIRMACION REQUERIDA] No se encontró una confirmación explícita del registro.")
                     print("=======================================================\n")
-                    msg_exito = "🎉 *¡TURNO REGISTRADO CON ÉXITO!* 🇵🇱\nRevisá tu casilla de email para el comprobante oficial."
-                    enviar_telegram(msg_exito)
+                    msg_confirmacion = (
+                        "⚠️ *e-Konsulat: registro no confirmado* 🇵🇱\n"
+                        "El formulario avanzó sin errores de validación, pero no se encontró una "
+                        "confirmación explícita del registro.\n"
+                        "No asumas que el turno quedó registrado ni vuelvas a enviar el formulario "
+                        "hasta comprobarlo. Revisá tu email y el estado en e-Konsulat."
+                    )
+                    enviar_telegram(msg_confirmacion)
 
         except Exception as exc:
             err = sanitize_for_logs(exc)

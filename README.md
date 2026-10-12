@@ -56,7 +56,7 @@ python monitor.py
 ```
 
 ### Ejecución programada (Cron)
-Puedes utilizar el script [run_cron.sh](run_cron.sh) para ejecutarlo automáticamente cada X minutos. Evita corridas solapadas (lock) y solo avisa por Telegram cuando hay novedades (cupo, éxito o error), no en cada corrida sin cambios:
+Puedes utilizar el script [run_cron.sh](run_cron.sh) para ejecutarlo automáticamente cada X minutos. Evita corridas solapadas (lock) y solo avisa por Telegram cuando hay novedades (cupo, validación requerida, registro no confirmado o error), no en cada corrida sin cambios. El bot no informa un registro exitoso si no detecta una confirmación explícita de e-Konsulat:
 ```bash
 chmod +x run_cron.sh
 ./run_cron.sh

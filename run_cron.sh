@@ -21,7 +21,9 @@ fi
 echo $$ > "$LOCK_DIR/pid"
 
 LOG_ACTUAL=$(mktemp "${TMPDIR:-/tmp}/ekonsulat_run.XXXXXX")
-trap 'rm -rf "$LOCK_DIR" "$LOG_ACTUAL"' EXIT
+LOG_ARCHIVO="ejecucion.log"
+LOG_TMP=$(mktemp "${TMPDIR:-/tmp}/ekonsulat_log.XXXXXX")
+trap 'rm -rf "$LOCK_DIR" "$LOG_ACTUAL" "$LOG_TMP"' EXIT
 
 # --- Leer solo lo necesario de .env, sin ejecutarlo ---
 leer_env() {
@@ -49,14 +51,21 @@ python monitor.py > "$LOG_ACTUAL" 2>&1
     echo "==============================================="
     date
     cat "$LOG_ACTUAL"
-} | ocultar >> ejecucion.log
+    echo "==============================================="
+} | ocultar > "$LOG_TMP"
+
+if [ -f "$LOG_ARCHIVO" ]; then
+    cat "$LOG_ARCHIVO" >> "$LOG_TMP"
+fi
+
+mv "$LOG_TMP" "$LOG_ARCHIVO"
 
 SALIDA_CORRIDA=$(ocultar < "$LOG_ACTUAL")
 
 # --- Decidir si vale la pena avisar ---
 # Las excepciones y el aviso de intervención humana ya los notifica monitor.py.
-if echo "$SALIDA_CORRIDA" | grep -q "EXITO TOTAL"; then
-    TITULO="🚨 *¡TURNO ENVIADO CON ÉXITO!* 🇵🇱"
+if echo "$SALIDA_CORRIDA" | grep -q "CONFIRMACION REQUERIDA"; then
+    TITULO="⚠️ *e-Konsulat: registro no confirmado*"
 elif echo "$SALIDA_CORRIDA" | grep -q "ALERTA"; then
     TITULO="⚠️ *¡HAY LUGAR EN LA LISTA DE ESPERA!* 🇵🇱"
 elif echo "$SALIDA_CORRIDA" | grep -q "^\[ERROR\]"; then
