@@ -64,8 +64,8 @@ SALIDA_CORRIDA=$(ocultar < "$LOG_ACTUAL")
 
 # --- Decidir si vale la pena avisar ---
 # Las excepciones y el aviso de intervención humana ya los notifica monitor.py.
-if echo "$SALIDA_CORRIDA" | grep -q "EXITO TOTAL"; then
-    TITULO="🚨 *¡TURNO ENVIADO CON ÉXITO!* 🇵🇱"
+if echo "$SALIDA_CORRIDA" | grep -q "CONFIRMACION REQUERIDA"; then
+    TITULO="⚠️ *e-Konsulat: registro no confirmado*"
 elif echo "$SALIDA_CORRIDA" | grep -q "ALERTA"; then
     TITULO="⚠️ *¡HAY LUGAR EN LA LISTA DE ESPERA!* 🇵🇱"
 elif echo "$SALIDA_CORRIDA" | grep -q "^\[ERROR\]"; then

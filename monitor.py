@@ -405,10 +405,16 @@ def ejecutar():
                         pass
                 else:
                     print("\n=======================================================")
-                    print("[EXITO TOTAL] ¡Formulario enviado automáticamente con éxito!")
+                    print("[CONFIRMACION REQUERIDA] No se encontró una confirmación explícita del registro.")
                     print("=======================================================\n")
-                    msg_exito = "🎉 *¡TURNO REGISTRADO CON ÉXITO!* 🇵🇱\nRevisá tu casilla de email para el comprobante oficial."
-                    enviar_telegram(msg_exito)
+                    msg_confirmacion = (
+                        "⚠️ *e-Konsulat: registro no confirmado* 🇵🇱\n"
+                        "El formulario avanzó sin errores de validación, pero no se encontró una "
+                        "confirmación explícita del registro.\n"
+                        "No asumas que el turno quedó registrado ni vuelvas a enviar el formulario "
+                        "hasta comprobarlo. Revisá tu email y el estado en e-Konsulat."
+                    )
+                    enviar_telegram(msg_confirmacion)
 
         except Exception as exc:
             err = sanitize_for_logs(exc)
