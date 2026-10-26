@@ -51,11 +51,6 @@ REQUIRED_ENV_VARS: List[str] = [
 ]
 
 
-def _por_etiqueta(texto: str, control: str = "input") -> str:
-    """Selector de respaldo: el control dentro del mat-form-field con esa etiqueta."""
-    return f"mat-form-field:has(mat-label:has-text('{texto}')) {control}"
-
-
 SELECTORS = {
     "captcha_img": "img[alt='Weryfikacja obrazkowa']",
     "captcha_input": "#mat-input-0, input[formcontrolname*='captcha' i]",
@@ -65,18 +60,21 @@ SELECTORS = {
     "service_select": "mat-select",
     "mat_option": ".cdk-overlay-container mat-option",
     "accept_waitlist": "button:has-text('Tak')",
-    "nombre": "input[aria-label*='Imię' i], #mat-input-1, " + _por_etiqueta("Imię"),
-    "apellido": "input[aria-label*='Nazwisko' i]:not([aria-label*='rodowe' i]), #mat-input-2",
-    "documento": "input[aria-label*='Numer paszportu' i], #mat-input-3, " + _por_etiqueta("Numer paszportu"),
-    "direccion": "input[aria-label*='Ulica' i], #mat-input-4, " + _por_etiqueta("Ulica"),
-    "prefijo": "input[aria-label*='Prefiks' i], #mat-input-5",
-    "telefono": "input[aria-label*='Telefon' i], #mat-input-6, input[autocomplete='tel']",
-    "email": "input[aria-label*='Email' i], #mat-input-7, input[autocomplete='email']",
-    "descripcion": "textarea[aria-label*='Opis sprawy' i], textarea, #mat-input-8",
+    # Solo por aria-label: el formulario tiene una segunda sección con otros
+    # "Imię"/"Nazwisko", y los ids (#mat-input-N) cambian de un campo a otro.
+    # Un selector con respaldo por id llegó a escribir en el campo equivocado.
+    "nombre": "input[aria-label*='Imię' i]:not([disabled])",
+    "apellido": "input[aria-label*='Nazwisko' i]:not([aria-label*='rodowe' i]):not([disabled])",
+    "documento": "input[aria-label*='Numer paszportu' i]",
+    "direccion": "input[aria-label*='Ulica' i]",
+    "prefijo": "input[aria-label*='Prefiks' i]",
+    "telefono": "input[aria-label*='Telefon' i], input[autocomplete='tel']",
+    "email": "input[aria-label*='Email' i], input[autocomplete='email']",
+    "descripcion": "textarea[aria-label*='Opis sprawy' i]",
     "mat_checkbox_registrante": "mat-checkbox:has-text('Czy sprawa dotyczy osoby rejestrującej')",
     "mat_checkbox_pasaporte": "mat-checkbox:has-text('1-SZY PASZPORT')",
-    "apellido_madre": "input[aria-label*='Nazwisko rodowe matki' i], input[placeholder*='Nazwisko rodowe matki' i], app-text-control:has-text('Nazwisko rodowe matki') input, #mat-input-9",
-    "fecha_nacimiento": "input[aria-label*='Data urodzenia' i], app-date-control input, input.mat-datepicker-input",
+    "apellido_madre": "input[aria-label*='Nazwisko rodowe matki' i], input[placeholder*='Nazwisko rodowe matki' i]",
+    "fecha_nacimiento": "input[aria-label*='Data urodzenia' i]",
     "checkbox_rodo": "mat-checkbox:has-text('Wyrażam zgodę'), mat-checkbox:has-text('RODO')",
 }
 
@@ -117,13 +115,32 @@ CAMPOS_ANTES_DEL_PREFIJO = (
 CAMPOS_DESPUES_DEL_PREFIJO = (
     ("telefono", "Teléfono", "telefono"),
     ("email", "Email", "email"),
-    ("apellido_madre", "Nazwisko rodowe matki (Apellido madre)", "apellido_madre"),
 )
-CHECKBOXES_OBLIGATORIOS = (
+# Se tildan antes de la segunda sección: "Czy sprawa dotyczy osoby
+# rejestrującej" copia (y bloquea) Imię/Nazwisko del solicitante ahí.
+CHECKBOXES_SECCION_PERSONA = (
     ("mat_checkbox_registrante", "Czy sprawa dotyczy osoby rejestrującej"),
     ("mat_checkbox_pasaporte", "1-SZY PASZPORT"),
+)
+CAMPOS_SECCION_PERSONA = (
+    ("apellido_madre", "Nazwisko rodowe matki (Apellido madre)", "apellido_madre"),
+)
+CHECKBOXES_FINALES = (
     ("checkbox_rodo", "RODO"),
 )
+
+# Campos obligatorios visibles y habilitados que siguen vacíos.
+JS_OBLIGATORIOS_VACIOS = r"""
+() => {
+  const visible = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  return Array.from(document.querySelectorAll(
+      'input[required], input[aria-required="true"], textarea[required], textarea[aria-required="true"]'))
+    .filter(el => visible(el) && !el.disabled && !['checkbox', 'radio', 'hidden'].includes(el.type))
+    .filter(el => !(el.value || '').trim())
+    .map(el => (el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.id || el.tagName)
+      .replace(/\s+/g, ' ').trim().slice(0, 80));
+}
+"""
 
 # Recorre el formulario y devuelve "etiqueta: mensaje" por cada control
 # inválido visible. No devuelve valores ingresados (datos personales).
@@ -134,7 +151,9 @@ JS_ERRORES_FORMULARIO = r"""
   const contenedor = el => el.closest('mat-form-field, .mat-mdc-form-field, mat-checkbox, mat-radio-group') || el;
   const etiqueta = (cont, el) => {
     const lab = cont.querySelector('mat-label, label');
+    const ctl = cont.querySelector('input, textarea, mat-select');
     return limpio((lab && lab.innerText) || el.getAttribute('aria-label') ||
+                  (ctl && ctl.getAttribute('aria-label')) ||
                   el.getAttribute('placeholder') || el.getAttribute('formcontrolname') ||
                   el.tagName.toLowerCase(), 80);
   };
@@ -627,28 +646,36 @@ def marcar_checkbox(locator, nombre: str) -> bool:
         return False
 
 
+def campos_obligatorios_vacios(page) -> List[str]:
+    try:
+        return list(page.evaluate(JS_OBLIGATORIOS_VACIOS) or [])
+    except Exception as exc:
+        print(f"[WARN] No se pudieron revisar los campos obligatorios: {sanitize_for_logs(exc)}")
+        return []
+
+
 def completar_formulario(page) -> List[str]:
     """Completa todos los campos y devuelve los que no se pudieron completar."""
     fallidos: List[str] = []
+    escritos = []  # (selector, valor, nombre) para verificar al final
 
-    for clave, nombre, selector in CAMPOS_ANTES_DEL_PREFIJO:
-        if not escribir_campo(page.locator(SELECTORS[selector]).first, DATOS_SOLICITANTE[clave], nombre):
-            fallidos.append(nombre)
+    def campos(lista):
+        for clave, nombre, selector in lista:
+            valor = DATOS_SOLICITANTE[clave]
+            if escribir_campo(page.locator(SELECTORS[selector]).first, valor, nombre):
+                escritos.append((selector, valor, nombre))
+            else:
+                fallidos.append(nombre)
 
+    def checkboxes(lista):
+        for selector, nombre in lista:
+            if not marcar_checkbox(page.locator(SELECTORS[selector]), nombre):
+                fallidos.append(nombre)
+
+    campos(CAMPOS_ANTES_DEL_PREFIJO)
     if not completar_prefijo(page):
         fallidos.append("Prefiks")
-
-    for clave, nombre, selector in CAMPOS_DESPUES_DEL_PREFIJO:
-        if not escribir_campo(page.locator(SELECTORS[selector]).first, DATOS_SOLICITANTE[clave], nombre):
-            fallidos.append(nombre)
-
-    nombre_fecha = "Data urodzenia (Fecha nacimiento)"
-    if not escribir_fecha(
-        page.locator(SELECTORS["fecha_nacimiento"]).first,
-        DATOS_SOLICITANTE["fecha_nacimiento"],
-        nombre_fecha,
-    ):
-        fallidos.append(nombre_fecha)
+    campos(CAMPOS_DESPUES_DEL_PREFIJO)
 
     t_area = page.locator(SELECTORS["descripcion"]).first
     try:
@@ -659,9 +686,34 @@ def completar_formulario(page) -> List[str]:
     except Exception as exc:
         print(f"[WARN] Error completando la descripción: {sanitize_for_logs(exc)}")
 
-    for selector, nombre in CHECKBOXES_OBLIGATORIOS:
-        if not marcar_checkbox(page.locator(SELECTORS[selector]), nombre):
+    checkboxes(CHECKBOXES_SECCION_PERSONA)
+    page.wait_for_timeout(800)  # el sitio completa la sección de la persona
+    campos(CAMPOS_SECCION_PERSONA)
+
+    nombre_fecha = "Data urodzenia (Fecha nacimiento)"
+    if not escribir_fecha(
+        page.locator(SELECTORS["fecha_nacimiento"]).first,
+        DATOS_SOLICITANTE["fecha_nacimiento"],
+        nombre_fecha,
+    ):
+        fallidos.append(nombre_fecha)
+
+    checkboxes(CHECKBOXES_FINALES)
+    page.wait_for_timeout(500)
+
+    # Verificación final: que nada haya pisado o borrado lo escrito.
+    for selector, valor, nombre in escritos:
+        try:
+            if page.locator(SELECTORS[selector]).first.input_value() != valor:
+                print(f"[WARN] El campo '{nombre}' cambió después de completarlo.")
+                fallidos.append(nombre)
+        except Exception as exc:
+            print(f"[WARN] No se pudo verificar '{nombre}': {sanitize_for_logs(exc)}")
             fallidos.append(nombre)
+
+    for campo in campos_obligatorios_vacios(page):
+        print(f"[WARN] Campo obligatorio vacío en el formulario: '{campo}'.")
+        fallidos.append(f"vacío: {campo}")
 
     return fallidos
 

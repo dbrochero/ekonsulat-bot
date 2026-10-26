@@ -69,7 +69,7 @@ Cuando aparece un cupo, el bot espera hasta 30 segundos a que el formulario est�
 
 Ante cualquier falla en el formulario, el HTML de la página se guarda en `debug/` (ignorado por git, permisos 600) para poder diagnosticarla.
 
-El cron de esta Mac está configurado en `*/20 * * * *` (cada 20 minutos). El lock evita ejecutar dos instancias a la vez; `run_cron.sh` no modifica por sí mismo la frecuencia.
+El cron de esta Mac está configurado en `*/10 * * * *` (cada 10 minutos). El lock evita ejecutar dos instancias a la vez; `run_cron.sh` no modifica por sí mismo la frecuencia.
 
 ### Pruebas
 ```bash
