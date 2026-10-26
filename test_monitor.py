@@ -51,10 +51,13 @@ class FakePage:
 
 
 class MonitorTests(unittest.TestCase):
-    def test_apellido_madre_selector_has_placeholder_and_input_id_fallbacks(self):
-        selector = monitor.SELECTORS["apellido_madre"]
-        self.assertIn("input[placeholder*='Nazwisko rodowe matki' i]", selector)
-        self.assertIn("#mat-input-9", selector)
+    def test_selectors_do_not_use_mat_input_ids(self):
+        # #mat-input-9 apuntaba al "Nazwisko" de la segunda sección, no al
+        # apellido materno: los ids no son estables entre campos.
+        for clave in ("nombre", "apellido", "documento", "direccion", "prefijo",
+                      "telefono", "email", "descripcion", "apellido_madre", "fecha_nacimiento"):
+            self.assertNotIn("#mat-input", monitor.SELECTORS[clave], clave)
+        self.assertIn("Nazwisko rodowe matki", monitor.SELECTORS["apellido_madre"])
 
     def test_escribir_campo_verifies_value(self):
         field = FakeField()
