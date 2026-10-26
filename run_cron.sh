@@ -1,5 +1,6 @@
 #!/bin/bash
-# Ejecuta monitor.py una vez y avisa por Telegram SOLO si hay novedades.
+# Ejecuta monitor.py una vez; el monitor notifica resultados y este wrapper
+# solo avisa cuando el proceso no puede iniciarse correctamente.
 # - No ejecuta .env como shell (se leen únicamente las dos claves de Telegram).
 # - Lock para evitar corridas solapadas.
 # - Oculta secretos antes de loguear o enviar nada.
@@ -23,7 +24,8 @@ echo $$ > "$LOCK_DIR/pid"
 LOG_ACTUAL=$(mktemp "${TMPDIR:-/tmp}/ekonsulat_run.XXXXXX")
 LOG_ARCHIVO="ejecucion.log"
 LOG_TMP=$(mktemp "${TMPDIR:-/tmp}/ekonsulat_log.XXXXXX")
-trap 'rm -rf "$LOCK_DIR" "$LOG_ACTUAL" "$LOG_TMP"' EXIT
+TELEGRAM_RESPUESTA=$(mktemp "${TMPDIR:-/tmp}/ekonsulat_telegram.XXXXXX")
+trap 'rm -rf "$LOCK_DIR" "$LOG_ACTUAL" "$LOG_TMP" "$TELEGRAM_RESPUESTA"' EXIT
 
 # --- Leer solo lo necesario de .env, sin ejecutarlo ---
 leer_env() {
@@ -46,6 +48,7 @@ ocultar() {
 # --- Ejecutar (python-dotenv carga el .env por su cuenta) ---
 source venv/bin/activate
 python monitor.py > "$LOG_ACTUAL" 2>&1
+PYTHON_STATUS=$?
 
 {
     echo "==============================================="
@@ -63,18 +66,22 @@ mv "$LOG_TMP" "$LOG_ARCHIVO"
 SALIDA_CORRIDA=$(ocultar < "$LOG_ACTUAL")
 
 # --- Decidir si vale la pena avisar ---
-# Las excepciones y el aviso de intervención humana ya los notifica monitor.py.
-if echo "$SALIDA_CORRIDA" | grep -q "CONFIRMACION REQUERIDA"; then
-    TITULO="⚠️ *e-Konsulat: registro no confirmado*"
-elif echo "$SALIDA_CORRIDA" | grep -q "ALERTA"; then
-    TITULO="⚠️ *¡HAY LUGAR EN LA LISTA DE ESPERA!* 🇵🇱"
+# Los resultados del registro, las excepciones capturadas y la intervención
+# humana ya los notifica monitor.py; evitar enviar un segundo aviso.
+if echo "$SALIDA_CORRIDA" | grep -q "ALERTA"; then
+    exit 0
 elif echo "$SALIDA_CORRIDA" | grep -q "^\[ERROR\]"; then
     TITULO="❌ *e-Konsulat:* error de ejecución"
+elif [ "$PYTHON_STATUS" -ne 0 ]; then
+    TITULO="❌ *e-Konsulat:* error al iniciar la automatización"
 else
     exit 0   # "Cola llena" u otra corrida sin novedades: no se envía nada
 fi
 
-[ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ] && exit 0
+if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+    echo "[ERROR] No se pudo enviar la notificación: faltan credenciales de Telegram." >> "$LOG_ARCHIVO"
+    exit 1
+fi
 
 # Telegram admite 4096 caracteres: se manda solo el final de la salida
 SALIDA_CORTA=$(printf '%s' "$SALIDA_CORRIDA" | tail -c 3000)
@@ -86,7 +93,16 @@ MENSAJE="$TITULO
 $SALIDA_CORTA
 \`\`\`"
 
-curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+HTTP_STATUS=$(curl -sS --connect-timeout 5 --max-time 15 \
+    -o "$TELEGRAM_RESPUESTA" -w '%{http_code}' \
+    -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
     -d chat_id="${TELEGRAM_CHAT_ID}" \
     -d parse_mode="Markdown" \
-    --data-urlencode text="$MENSAJE" > /dev/null 2>&1
+    --data-urlencode text="$MENSAJE" 2>/dev/null)
+CURL_STATUS=$?
+
+if [ "$CURL_STATUS" -ne 0 ] || ! [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]] \
+    || ! grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "$TELEGRAM_RESPUESTA"; then
+    echo "[ERROR] Telegram no confirmó la entrega del aviso (HTTP ${HTTP_STATUS:-sin respuesta}, curl $CURL_STATUS)." >> "$LOG_ARCHIVO"
+    exit 1
+fi
