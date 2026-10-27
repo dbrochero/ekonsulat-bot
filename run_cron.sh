@@ -8,7 +8,9 @@
 cd "$(dirname "$0")" || exit 1
 
 # --- Lock: evita instancias simultáneas (macOS no trae flock) ---
-LOCK_DIR="${TMPDIR:-/tmp}/ekonsulat_bot.lock"
+# En la carpeta del bot: TMPDIR difiere entre cron (/tmp) y la terminal
+# (/var/folders/...), y con eso el lock no frenaba corridas simultáneas.
+LOCK_DIR="$PWD/.ekonsulat_bot.lock"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     PID_PREVIO=$(cat "$LOCK_DIR/pid" 2>/dev/null)
     if [ -n "$PID_PREVIO" ] && kill -0 "$PID_PREVIO" 2>/dev/null; then
