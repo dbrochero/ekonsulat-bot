@@ -67,6 +67,10 @@ Con `HEADLESS=true`, Chromium permanece oculto. Si el formulario requiere revisi
 
 Cuando aparece un cupo, el bot espera hasta 90 segundos a que el formulario esté en pantalla (aceptando los diálogos "Tak" que aparezcan), en lugar de esperar un tiempo fijo. La fecha de nacimiento se prueba en `YYYY-MM-DD`, `DD.MM.YYYY` y `DD/MM/YYYY` hasta que el sitio la acepte. Si e-Konsulat rechaza el formulario, el log y Telegram indican qué campo marcó el sitio y con qué mensaje. Al apretar "Dalej", e-Konsulat muestra una pantalla de revisión (Anuluj / Popraw / Zapisz): el registro se hace recién con "Zapisz", que el bot aprieta una sola vez. Si el formulario desaparece después de enviarlo sin un mensaje de confirmación reconocido, el bot no lo reenvía, para no duplicar la inscripción.
 
+Al apretar "Zapisz" se crea `registro_enviado.txt` en la carpeta del bot. Mientras exista, las corridas siguientes terminan sin volver a inscribir, para no duplicar el registro. Si el registro no se hizo, borrá ese archivo para reanudar. Si después de elegir el servicio la página no muestra ni "cola llena" ni la oferta de lista de espera, el bot avisa por Telegram y guarda la página.
+
+El lock de `run_cron.sh` vive en la carpeta del bot (`.ekonsulat_bot.lock`), así frena también las corridas lanzadas a mano mientras corre el cron.
+
 Ante cualquier falla en el formulario, el HTML de la página se guarda en `debug/` (ignorado por git, permisos 600) para poder diagnosticarla.
 
 El cron de esta Mac está configurado en `*/10 * * * *` (cada 10 minutos). El lock evita ejecutar dos instancias a la vez; `run_cron.sh` no modifica por sí mismo la frecuencia.

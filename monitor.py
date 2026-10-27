@@ -18,6 +18,9 @@ for env_name, env_value in dotenv_values(os.path.join(BASE_DIR, ".env")).items()
 
 URL = "https://secure.e-konsulat.gov.pl/placowki/164/sprawy-paszportowe/wizyty/formularz"
 DEBUG_DIR = os.path.join(BASE_DIR, "debug")
+# Se crea al apretar "Zapisz": mientras exista, el bot no vuelve a inscribir
+# (evita duplicados si el registro funcionó pero no se reconoció el mensaje).
+MARCA_REGISTRO = os.path.join(BASE_DIR, "registro_enviado.txt")
 MAX_REGISTRATION_SUBMISSIONS = 5
 REGISTRATION_RESPONSE_TIMEOUT_SECONDS = 15
 FORM_LOAD_TIMEOUT_SECONDS = 90
@@ -73,7 +76,9 @@ SELECTORS = {
     "email": "input[aria-label*='Email' i], input[autocomplete='email']",
     "descripcion": "textarea[aria-label*='Opis sprawy' i]",
     "mat_checkbox_registrante": "mat-checkbox:has-text('Czy sprawa dotyczy osoby rejestrującej')",
-    "mat_checkbox_pasaporte": "mat-checkbox:has-text('1-SZY PASZPORT')",
+    # Hay dos opciones con "1-SZY PASZPORT"; esta es la que no incluye el
+    # pasaporte temporal ("+ TYMCZ. NA CZAS OCZEKIWANIA").
+    "mat_checkbox_pasaporte": "mat-checkbox:has-text('1-SZY PASZPORT 5 LUB 10 LETNI - PESEL NIENADANY')",
     "apellido_madre": "input[aria-label*='Nazwisko rodowe matki' i], input[placeholder*='Nazwisko rodowe matki' i]",
     "fecha_nacimiento": "input[aria-label*='Data urodzenia' i]",
     "checkbox_rodo": "mat-checkbox:has-text('Wyrażam zgodę'), mat-checkbox:has-text('RODO')",
@@ -767,6 +772,45 @@ def pantalla_revision(page) -> bool:
         return False
 
 
+def marcar_registro_enviado() -> None:
+    try:
+        with open(MARCA_REGISTRO, "w", encoding="utf-8") as f:
+            f.write(f"Registro enviado con 'Zapisz' el {datetime.now():%Y-%m-%d %H:%M:%S}.\n"
+                    "Mientras este archivo exista, el bot no vuelve a inscribir.\n")
+    except OSError as exc:
+        print(f"[WARN] No se pudo crear {os.path.basename(MARCA_REGISTRO)}: {exc}")
+
+
+def borrar_marca_registro() -> None:
+    try:
+        os.remove(MARCA_REGISTRO)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        print(f"[WARN] No se pudo borrar {os.path.basename(MARCA_REGISTRO)}: {exc}")
+
+
+def aceptar_dialogo(page) -> bool:
+    """Si tras 'Zapisz' aparece un diálogo, registra su título y lo acepta una vez."""
+    dialogo = page.locator("mat-dialog-container").first
+    try:
+        if dialogo.count() == 0 or not dialogo.is_visible():
+            return False
+        texto = " ".join(dialogo.inner_text().split())[:200]
+        boton = dialogo.get_by_role(
+            "button", name=re.compile(r"^\s*(Tak|OK|Potwierdź|Zapisz|Zamknij)\s*$", re.I)
+        ).first
+        if boton.count() == 0:
+            print(f"[WARN] Apareció un diálogo sin botón conocido: {texto}")
+            return False
+        print(f"[INFO] Diálogo tras 'Zapisz' ({texto}); se acepta con '{boton.inner_text().strip()}'.")
+        boton.click()
+        return True
+    except Exception as exc:
+        print(f"[WARN] Error manejando un diálogo: {sanitize_for_logs(exc)}")
+        return False
+
+
 def guardar_registro(page, envios: int) -> Tuple[str, int, List[str]]:
     """Aprieta 'Zapisz' una sola vez y espera el resultado. Nunca reintenta,
     para no crear inscripciones duplicadas."""
@@ -778,15 +822,22 @@ def guardar_registro(page, envios: int) -> Tuple[str, int, List[str]]:
     texto_antes = texto_pagina(page)
     print("[INFO] Pantalla de revisión: confirmando el registro con 'Zapisz'...")
     boton.scroll_into_view_if_needed()
+    marcar_registro_enviado()
     boton.click()
 
+    dialogo_aceptado = False
     for _ in range(SAVE_RESPONSE_TIMEOUT_SECONDS * 2):
         page.wait_for_timeout(500)
         if registro_confirmado(page):
             return "confirmado", envios, []
         errores = error_validacion_registro(page, texto_antes)
         if errores:
+            # El sitio rechazó el guardado: no quedó registrado, se puede reintentar.
+            borrar_marca_registro()
             return "validacion", envios, errores
+        if not dialogo_aceptado and aceptar_dialogo(page):
+            dialogo_aceptado = True
+            continue
         if not pantalla_revision(page):
             page.wait_for_timeout(2000)
             if registro_confirmado(page):
@@ -856,6 +907,12 @@ def pausa_para_intervencion(page, motivo: str) -> None:
         page.wait_for_timeout(240000)
 
 
+NOTA_MARCA = (
+    "El bot dejó de inscribir para no duplicar. Si NO quedaste registrado, "
+    "borrá registro_enviado.txt en la carpeta del bot para que vuelva a intentar."
+)
+
+
 def nota_headless() -> str:
     if HEADLESS:
         return (
@@ -915,7 +972,8 @@ def procesar_cupo(page) -> None:
         print("[REGISTRO CONFIRMADO] e-Konsulat confirmó la inscripción en la lista de espera.")
         enviar_telegram(
             "✅ *e-Konsulat confirmó el registro en la lista de espera.*\n"
-            f"Envíos realizados: {envios}."
+            f"Envíos realizados: {envios}.\n"
+            "El bot deja de inscribir (registro\\_enviado.txt). Borrá ese archivo para reanudar."
         )
         return
 
@@ -943,7 +1001,8 @@ def procesar_cupo(page) -> None:
             "El sitio no mostró un mensaje de confirmación conocido; no se reenvió para evitar duplicados.\n"
             + escapar_markdown(
                 f"Títulos visibles: {', '.join(titulos) or 'ninguno'}.\n"
-                "Revisá tu email: debería llegar la confirmación de e-Konsulat."
+                "Revisá tu email: debería llegar la confirmación de e-Konsulat.\n"
+                + NOTA_MARCA
             )
         )
         pausa_para_intervencion(page, "revisar el estado")
@@ -975,7 +1034,9 @@ def procesar_cupo(page) -> None:
         + escapar_markdown(
             f"El bot realizó {envios} de {MAX_REGISTRATION_SUBMISSIONS} envíos permitidos "
             "y no encontró una confirmación explícita. Verificá el estado en e-Konsulat "
-            "y el email antes de iniciar otra inscripción." + nota_headless()
+            "y el email antes de iniciar otra inscripción."
+            + (("\n" + NOTA_MARCA) if os.path.exists(MARCA_REGISTRO) else "")
+            + nota_headless()
         )
     )
     pausa_para_intervencion(page, "revisar el estado")
@@ -989,6 +1050,13 @@ def ejecutar():
     faltan = faltan_variables()
     if faltan:
         print(f"[ERROR] Faltan variables obligatorias: {', '.join(faltan)}")
+        return
+
+    if os.path.exists(MARCA_REGISTRO):
+        print(
+            "[INFO] Ya se envió un registro (existe registro_enviado.txt); el bot no "
+            "vuelve a inscribir. Borrá ese archivo para reanudar el monitoreo."
+        )
         return
 
     with sync_playwright() as p:
@@ -1019,6 +1087,24 @@ def ejecutar():
 
             if "Czy chcesz zapisać się na listę oczekujących?" in html_content:
                 procesar_cupo(page)
+                return
+
+            # Ni cola llena ni oferta de lista de espera: estado que el bot no conoce.
+            # Se avisa siempre, por si es un cupo con otro formato.
+            titulos = titulos_pagina(page)
+            print(
+                "[ALERTA] Estado de página desconocido tras elegir el servicio. "
+                f"Títulos visibles: {titulos or 'ninguno'}"
+            )
+            guardar_dump(page, "estado_desconocido")
+            enviar_telegram(
+                "❓ *e-Konsulat: la página muestra algo que el bot no reconoce.*\n"
+                + escapar_markdown(
+                    f"No es 'cola llena' ni la oferta de lista de espera. Títulos: "
+                    f"{', '.join(titulos) or 'ninguno'}.\nPodría ser un cupo con otro formato: "
+                    "entrá a e-Konsulat a revisar. El HTML quedó en debug/."
+                )
+            )
 
         except Exception as exc:
             err = sanitize_for_logs(exc)

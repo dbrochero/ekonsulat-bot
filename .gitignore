@@ -21,3 +21,7 @@ Thumbs.db
 
 # HTML de diagnóstico guardado por el bot cuando falla el formulario
 debug/
+
+# Lock de run_cron.sh y marca de registro enviado (estado local)
+.ekonsulat_bot.lock/
+registro_enviado.txt
