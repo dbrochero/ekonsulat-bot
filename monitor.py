@@ -20,7 +20,8 @@ URL = "https://secure.e-konsulat.gov.pl/placowki/164/sprawy-paszportowe/wizyty/f
 DEBUG_DIR = os.path.join(BASE_DIR, "debug")
 MAX_REGISTRATION_SUBMISSIONS = 5
 REGISTRATION_RESPONSE_TIMEOUT_SECONDS = 15
-FORM_LOAD_TIMEOUT_SECONDS = 30
+FORM_LOAD_TIMEOUT_SECONDS = 90
+SAVE_RESPONSE_TIMEOUT_SECONDS = 30
 REGISTRATION_CONFIRMATION_TEXTS = (
     "zostałeś zapisany na listę oczekujących",
     "zostałaś zapisana na listę oczekujących",
@@ -753,12 +754,56 @@ def error_validacion_registro(page, texto_antes: str = "") -> List[str]:
     return [f"mensaje del sitio: '{f}'" for f in textos_validacion_nuevos(texto_antes, texto_pagina(page))]
 
 
+def boton_guardar(page):
+    """Botón 'Zapisz' de la pantalla de revisión (Anuluj / Popraw / Zapisz)."""
+    return page.get_by_role("button", name="Zapisz", exact=True)
+
+
+def pantalla_revision(page) -> bool:
+    try:
+        boton = boton_guardar(page)
+        return boton.count() > 0 and boton.first.is_visible()
+    except Exception:
+        return False
+
+
+def guardar_registro(page, envios: int) -> Tuple[str, int, List[str]]:
+    """Aprieta 'Zapisz' una sola vez y espera el resultado. Nunca reintenta,
+    para no crear inscripciones duplicadas."""
+    boton = boton_guardar(page).first
+    if not boton.is_enabled():
+        print("[WARN] El botón 'Zapisz' está deshabilitado.")
+        return "sin_confirmacion", envios, []
+
+    texto_antes = texto_pagina(page)
+    print("[INFO] Pantalla de revisión: confirmando el registro con 'Zapisz'...")
+    boton.scroll_into_view_if_needed()
+    boton.click()
+
+    for _ in range(SAVE_RESPONSE_TIMEOUT_SECONDS * 2):
+        page.wait_for_timeout(500)
+        if registro_confirmado(page):
+            return "confirmado", envios, []
+        errores = error_validacion_registro(page, texto_antes)
+        if errores:
+            return "validacion", envios, errores
+        if not pantalla_revision(page):
+            page.wait_for_timeout(2000)
+            if registro_confirmado(page):
+                return "confirmado", envios, []
+            return "guardado_sin_mensaje", envios, []
+
+    print(f"[WARN] La pantalla de revisión sigue abierta {SAVE_RESPONSE_TIMEOUT_SECONDS}s después de 'Zapisz'.")
+    return "sin_confirmacion", envios, []
+
+
 def enviar_formulario(page) -> Tuple[str, int, List[str]]:
     """Envía el formulario y devuelve (estado, envíos, errores).
 
-    Estados: 'confirmado', 'validacion', 'pagina_cambio', 'sin_boton',
-    'sin_confirmacion'. Solo reenvía si el formulario sigue en pantalla
-    sin errores, para no apretar un botón de otra etapa.
+    'Dalej' lleva a una pantalla de revisión; el registro se hace con
+    'Zapisz'. Estados: 'confirmado', 'validacion', 'guardado_sin_mensaje',
+    'pagina_cambio', 'sin_boton', 'sin_confirmacion'. Solo reenvía 'Dalej'
+    si el formulario sigue en pantalla sin errores.
     """
     envios = 0
     for intento in range(1, MAX_REGISTRATION_SUBMISSIONS + 1):
@@ -780,10 +825,15 @@ def enviar_formulario(page) -> Tuple[str, int, List[str]]:
             errores = error_validacion_registro(page, texto_antes)
             if errores:
                 return "validacion", envios, errores
+            if pantalla_revision(page):
+                page.wait_for_timeout(1000)  # deja terminar el render
+                return guardar_registro(page, envios)
             if not formulario_visible(page):
                 page.wait_for_timeout(2000)
                 if registro_confirmado(page):
                     return "confirmado", envios, []
+                if pantalla_revision(page):
+                    return guardar_registro(page, envios)
                 return "pagina_cambio", envios, []
 
         if intento < MAX_REGISTRATION_SUBMISSIONS:
@@ -879,6 +929,24 @@ def procesar_cupo(page) -> None:
             + escapar_markdown("Errores: " + "; ".join(errores) + nota_headless())
         )
         pausa_para_intervencion(page, "que corrijas el campo indicado")
+        return
+
+    if estado == "guardado_sin_mensaje":
+        titulos = titulos_pagina(page)
+        print(
+            "[REGISTRO PROBABLE] Se apretó 'Zapisz' y la pantalla de revisión se cerró, pero no "
+            f"se reconoció un mensaje de confirmación. Títulos visibles: {titulos or 'ninguno'}"
+        )
+        guardar_dump(page, "guardado_sin_mensaje")
+        enviar_telegram(
+            "✅ *e-Konsulat: se envió el registro (botón Zapisz).*\n"
+            "El sitio no mostró un mensaje de confirmación conocido; no se reenvió para evitar duplicados.\n"
+            + escapar_markdown(
+                f"Títulos visibles: {', '.join(titulos) or 'ninguno'}.\n"
+                "Revisá tu email: debería llegar la confirmación de e-Konsulat."
+            )
+        )
+        pausa_para_intervencion(page, "revisar el estado")
         return
 
     if estado == "pagina_cambio":
